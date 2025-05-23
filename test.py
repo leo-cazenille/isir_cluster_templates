@@ -1,18 +1,20 @@
 #!/usr/bin/env python3
-
-#!/usr/bin/env python3
 """
 Quick-n-dirty environment probe for a SLURM node.
 
-Reports
-  • CPU cores available
-  • Total RAM visible to the process
-  • Python interpreter version
-  • Contents of /etc/issue
-  • Installed Python packages (pip3 list)
+New behaviour
+  • Tries to build & store a random-data DataFrame **only if**
+    numpy, pandas *and* pyarrow are available.
+  • If any of those packages are missing, it prints a warning and
+    skips the DataFrame section, so the rest of the tests still run.
 
-Then idles long enough so that the job’s wall-clock time is ~3 minutes,
-useful for testing accounting and node allocation.
+Existing features
+  • CPU cores & total memory
+  • Python interpreter version
+  • /etc/issue contents
+  • pip3 list
+  • Optional DataFrame ➜ results/probe_results.feather
+  • Idles so total job time ≈3 min
 """
 
 import os
@@ -23,11 +25,30 @@ import time
 from datetime import timedelta
 from pathlib import Path
 
-import numpy as np
-import pandas as pd
+# ---------------------------------------------------------------------------
+# Optional imports (handled gracefully)
+# ---------------------------------------------------------------------------
+try:
+    import numpy as np
+except ImportError:      # pragma: no cover
+    np = None
+
+try:
+    import pandas as pd
+except ImportError:      # pragma: no cover
+    pd = None
+
+# pyarrow is only needed for Feather I/O; check later on demand
+PYARROW_AVAILABLE = False
+if pd is not None:
+    try:
+        import pyarrow  # noqa: F401
+        PYARROW_AVAILABLE = True
+    except ImportError:  # pragma: no cover
+        pass
 
 START = time.time()
-TARGET_SECONDS = 30 # 180               # ≈ 3 minutes
+TARGET_SECONDS = 20          # ≈ 3 minutes
 
 
 # ---------------------------------------------------------------------------
@@ -35,11 +56,11 @@ TARGET_SECONDS = 30 # 180               # ≈ 3 minutes
 # ---------------------------------------------------------------------------
 
 def cpu_count():
-    """Return the core count allotted by SLURM (if defined) or Python’s view."""
+    """Cores allotted by SLURM (if defined) or Python’s view."""
     slurm_cores = (
-        os.getenv("SLURM_CPUS_ON_NODE") or
-        os.getenv("SLURM_CPUS_PER_TASK") or
-        os.getenv("SLURM_NPROCS")
+        os.getenv("SLURM_CPUS_ON_NODE")
+        or os.getenv("SLURM_CPUS_PER_TASK")
+        or os.getenv("SLURM_NPROCS")
     )
     return int(slurm_cores) if slurm_cores else os.cpu_count()
 
@@ -53,9 +74,8 @@ def total_memory_gib():
         with open("/proc/meminfo") as fh:
             for line in fh:
                 if line.startswith("MemTotal:"):
-                    kib = int(line.split()[1])          # value is KiB
+                    kib = int(line.split()[1])  # KiB
                     return kib / 2**20
-    # Fallback—should not reach here on Linux
     return None
 
 
@@ -70,11 +90,11 @@ def pip_list():
 
 
 def read_issue():
-    """Return the contents of /etc/issue (Linux distro banner) if readable."""
-    issue_path = Path("/etc/issue")
-    if issue_path.is_file():
+    """Return the contents of /etc/issue (Linux banner) if readable."""
+    p = Path("/etc/issue")
+    if p.is_file():
         try:
-            return issue_path.read_text(errors="replace").strip()
+            return p.read_text(errors="replace").strip()
         except Exception as exc:
             return f"(Could not read /etc/issue: {exc})"
     return "(No /etc/issue found on this system)"
@@ -83,6 +103,33 @@ def read_issue():
 # ---------------------------------------------------------------------------
 # Main logic
 # ---------------------------------------------------------------------------
+
+def generate_dataframe():
+    """Return a random-value pandas DataFrame or None if deps are missing."""
+    if np is None or pd is None:
+        print(
+            "# DataFrame generation skipped – numpy and/or pandas not installed."
+        )
+        return None
+    df = pd.DataFrame(
+        {
+            "metric1": np.random.random(100),
+            "metric2": np.random.random(100),
+        }
+    )
+    return df
+
+
+def save_dataframe(df: "pd.DataFrame", outdir: Path):
+    """Save DataFrame as Feather if pyarrow present, else as CSV."""
+    if PYARROW_AVAILABLE:
+        fpath = outdir / "probe_results.feather"
+        df.to_feather(fpath)
+    else:
+        fpath = outdir / "probe_results.csv"
+        df.to_csv(fpath, index=False)
+    print(f"Saved DataFrame to {fpath.resolve()}")
+
 
 def main():
     print("# SLURM environment probe\n")
@@ -96,7 +143,7 @@ def main():
     print("# Python interpreter\n")
     print(f"Short version              : {platform.python_version()}")
     print("Full sys.version banner    :")
-    print(sys.version.replace("\n", "\n                               "))  # indent lines
+    print(sys.version.replace("\n", "\n                               "))
     print()
 
     # /etc/issue -------------------------------------------------------------
@@ -108,20 +155,14 @@ def main():
     print("# Python packages (pip3 list)\n")
     print(pip_list())
 
-    # Generate & store test results ------------------------------------------
-    results_dir = Path("results")
-    results_dir.mkdir(exist_ok=True)
-
-    df = pd.DataFrame(
-        {
-            "metric1": np.random.random(100),
-            "metric2": np.random.random(100),
-        }
-    )
-    feather_path = results_dir / "probe_results.feather"
-    df.to_feather(feather_path)
-
-    print(f"\nSaved DataFrame to {feather_path.resolve()}")
+    # -----------------------------------------------------------------------
+    # Optional DataFrame section
+    # -----------------------------------------------------------------------
+    df = generate_dataframe()
+    if df is not None:
+        results_dir = Path("results")
+        results_dir.mkdir(exist_ok=True)
+        save_dataframe(df, results_dir)
 
     # Wait so the job lasts ~3 minutes --------------------------------------
     elapsed = time.time() - START
