@@ -23,6 +23,9 @@ import time
 from datetime import timedelta
 from pathlib import Path
 
+import numpy as np
+import pandas as pd
+
 START = time.time()
 TARGET_SECONDS = 30 # 180               # ≈ 3 minutes
 
@@ -104,6 +107,21 @@ def main():
     # Packages ---------------------------------------------------------------
     print("# Python packages (pip3 list)\n")
     print(pip_list())
+
+    # Generate & store test results ------------------------------------------
+    results_dir = Path("results")
+    results_dir.mkdir(exist_ok=True)
+
+    df = pd.DataFrame(
+        {
+            "metric1": np.random.random(100),
+            "metric2": np.random.random(100),
+        }
+    )
+    feather_path = results_dir / "probe_results.feather"
+    df.to_feather(feather_path)
+
+    print(f"\nSaved DataFrame to {feather_path.resolve()}")
 
     # Wait so the job lasts ~3 minutes --------------------------------------
     elapsed = time.time() - START

@@ -20,7 +20,7 @@ From: ubuntu:24.04
   rm -f /usr/lib/python3.*/EXTERNALLY-MANAGED
 
   # ---- Python libraries ----------------------------------------------------
-  pip3 install --no-cache-dir psutil          # used by test_slurm.py
+  pip3 install --no-cache-dir psutil numpy pandas pyarrow
 
 %environment
   # Ensure the container’s Python is found first
@@ -35,5 +35,6 @@ From: ubuntu:24.04
   python3 - <<'PY'
 import sys, psutil, platform
 print("Container test OK – Python", platform.python_version(), "psutil", psutil.__version__)
+import numpy, pandas, pyarrow
 PY
 
