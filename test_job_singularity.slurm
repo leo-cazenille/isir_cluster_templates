@@ -24,6 +24,7 @@ srun singularity exec --bind $SCRATCH_DIRECTORY:/scratch --pwd /scratch $SCRATCH
 
 # After the job is done we copy our output back to $SLURM_SUBMIT_DIR 
 #cp output_$SLURM_ARRAY_TASK_ID.txt $SLURM_SUBMIT_DIR
+[ -d results ] && cp -R results $SLURM_SUBMIT_DIR
 
 # We step out of the scratch directory and remove it 
 cd $SLURM_SUBMIT_DIR
