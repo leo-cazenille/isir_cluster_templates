@@ -20,7 +20,7 @@ cp $SLURM_SUBMIT_DIR/test.py $SCRATCH_DIRECTORY
 cp $SLURM_SUBMIT_DIR/$SINGULARITY_IMG $SCRATCH_DIRECTORY
 
 # Run the program and give a unique name per task for the output file 
-srun singularity exec --bind $SCRATCH_DIRECTORY:/scratch --pwd /scratch $SCRATCH_DIRECTORY/$SINGULARITY_IMG ./test.py
+srun singularity exec --bind $SCRATCH_DIRECTORY:/scratch --pwd /scratch $SCRATCH_DIRECTORY/$SINGULARITY_IMG ./test.py "$SLURM_JOB_ID"
 
 # After the job is done we copy our output back to $SLURM_SUBMIT_DIR 
 #cp output_$SLURM_ARRAY_TASK_ID.txt $SLURM_SUBMIT_DIR

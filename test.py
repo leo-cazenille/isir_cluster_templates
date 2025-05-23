@@ -1,22 +1,16 @@
 #!/usr/bin/env python3
 """
-Quick-n-dirty environment probe for a SLURM node.
+SLURM environment probe.
 
-New behaviour
-  • Tries to build & store a random-data DataFrame **only if**
-    numpy, pandas *and* pyarrow are available.
-  • If any of those packages are missing, it prints a warning and
-    skips the DataFrame section, so the rest of the tests still run.
-
-Existing features
-  • CPU cores & total memory
-  • Python interpreter version
-  • /etc/issue contents
-  • pip3 list
-  • Optional DataFrame ➜ results/probe_results.feather
-  • Idles so total job time ≈3 min
+Changes in this version
+-----------------------
+• First positional CLI argument = run-name  ➜  appended to all output files.
+  Example (inside batch script):   srun ./test_slurm.py "$SLURM_JOB_ID"
+• Everything else (CPU & memory report, optional DataFrame, 3-min idle) is
+  unchanged and still works even if numpy / pandas / pyarrow are absent.
 """
 
+import argparse
 import os
 import platform
 import subprocess
@@ -38,7 +32,6 @@ try:
 except ImportError:      # pragma: no cover
     pd = None
 
-# pyarrow is only needed for Feather I/O; check later on demand
 PYARROW_AVAILABLE = False
 if pd is not None:
     try:
@@ -48,15 +41,30 @@ if pd is not None:
         pass
 
 START = time.time()
-TARGET_SECONDS = 20          # ≈ 3 minutes
+TARGET_SECONDS = 180          # ≈ 3 minutes
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
+def parse_cli() -> str:
+    """Return the run-name supplied on the command line (or a default)."""
+    parser = argparse.ArgumentParser(
+        description="SLURM probe – requires a run-name/ID for output files."
+    )
+    parser.add_argument(
+        "run_name",
+        nargs="?",
+        default=None,
+        help="Run identifier (e.g. $SLURM_JOB_ID); added to results filenames.",
+    )
+    args = parser.parse_args()
+    # Fallback if nothing was given on the CLI
+    return args.run_name or os.getenv("SLURM_JOB_ID", "local")
+
+
 def cpu_count():
-    """Cores allotted by SLURM (if defined) or Python’s view."""
     slurm_cores = (
         os.getenv("SLURM_CPUS_ON_NODE")
         or os.getenv("SLURM_CPUS_PER_TASK")
@@ -66,9 +74,9 @@ def cpu_count():
 
 
 def total_memory_gib():
-    """Total RAM visible to this process, in GiB."""
     try:
         import psutil
+
         return psutil.virtual_memory().total / 2**30
     except ImportError:
         with open("/proc/meminfo") as fh:
@@ -80,17 +88,13 @@ def total_memory_gib():
 
 
 def pip_list():
-    """Return the pip package list as a string."""
     try:
-        return subprocess.check_output(
-            ["pip3", "list", "--format=columns"], text=True
-        )
+        return subprocess.check_output(["pip3", "list", "--format=columns"], text=True)
     except Exception as exc:
         return f"(pip3 list failed: {exc})"
 
 
 def read_issue():
-    """Return the contents of /etc/issue (Linux banner) if readable."""
     p = Path("/etc/issue")
     if p.is_file():
         try:
@@ -101,70 +105,67 @@ def read_issue():
 
 
 # ---------------------------------------------------------------------------
-# Main logic
+# Data-frame helpers
 # ---------------------------------------------------------------------------
 
 def generate_dataframe():
-    """Return a random-value pandas DataFrame or None if deps are missing."""
     if np is None or pd is None:
-        print(
-            "# DataFrame generation skipped – numpy and/or pandas not installed."
-        )
+        print("# DataFrame generation skipped – numpy and/or pandas not installed.")
         return None
-    df = pd.DataFrame(
-        {
-            "metric1": np.random.random(100),
-            "metric2": np.random.random(100),
-        }
+    return pd.DataFrame(
+        {"metric1": np.random.random(100), "metric2": np.random.random(100)}
     )
-    return df
 
 
-def save_dataframe(df: "pd.DataFrame", outdir: Path):
-    """Save DataFrame as Feather if pyarrow present, else as CSV."""
+def save_dataframe(df: "pd.DataFrame", outdir: Path, run_name: str):
+    suffix = ".feather" if PYARROW_AVAILABLE else ".csv"
+    fpath = outdir / f"probe_results_{run_name}{suffix}"
     if PYARROW_AVAILABLE:
-        fpath = outdir / "probe_results.feather"
         df.to_feather(fpath)
     else:
-        fpath = outdir / "probe_results.csv"
         df.to_csv(fpath, index=False)
     print(f"Saved DataFrame to {fpath.resolve()}")
 
 
-def main():
-    print("# SLURM environment probe\n")
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
 
-    # CPU and memory ---------------------------------------------------------
+def main():
+    run_name = parse_cli()
+
+    print("# SLURM environment probe\n")
+    print(f"Run identifier            : {run_name}\n")
+
+    # CPU + memory ----------------------------------------------------------
     print(f"Allocated CPU cores        : {cpu_count()}")
     mem_gib = total_memory_gib()
     print(f"Total visible memory       : {mem_gib:.2f} GiB\n")
 
-    # Python version ---------------------------------------------------------
+    # Python version --------------------------------------------------------
     print("# Python interpreter\n")
     print(f"Short version              : {platform.python_version()}")
     print("Full sys.version banner    :")
     print(sys.version.replace("\n", "\n                               "))
     print()
 
-    # /etc/issue -------------------------------------------------------------
+    # /etc/issue ------------------------------------------------------------
     print("# /etc/issue contents\n")
     print(read_issue())
     print()
 
-    # Packages ---------------------------------------------------------------
+    # Packages --------------------------------------------------------------
     print("# Python packages (pip3 list)\n")
     print(pip_list())
 
-    # -----------------------------------------------------------------------
-    # Optional DataFrame section
-    # -----------------------------------------------------------------------
+    # Optional DataFrame ----------------------------------------------------
     df = generate_dataframe()
     if df is not None:
         results_dir = Path("results")
         results_dir.mkdir(exist_ok=True)
-        save_dataframe(df, results_dir)
+        save_dataframe(df, results_dir, run_name)
 
-    # Wait so the job lasts ~3 minutes --------------------------------------
+    # Idle to reach ~3 min --------------------------------------------------
     elapsed = time.time() - START
     remaining = TARGET_SECONDS - elapsed
     if remaining > 0:
