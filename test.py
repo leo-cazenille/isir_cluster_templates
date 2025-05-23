@@ -41,7 +41,7 @@ if pd is not None:
         pass
 
 START = time.time()
-TARGET_SECONDS = 180          # ≈ 3 minutes
+TARGET_SECONDS = 20          # ≈ 3 minutes
 
 
 # ---------------------------------------------------------------------------
