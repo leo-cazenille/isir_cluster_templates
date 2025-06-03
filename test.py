@@ -2,12 +2,13 @@
 """
 SLURM environment probe.
 
-Changes in this version
------------------------
-• First positional CLI argument = run-name  ➜  appended to all output files.
-  Example (inside batch script):   srun ./test_slurm.py "$SLURM_JOB_ID"
-• Everything else (CPU & memory report, optional DataFrame, 3-min idle) is
-  unchanged and still works even if numpy / pandas / pyarrow are absent.
+If numpy and pandas are installed, generate also a dataframe containing random distributions.
+If not, the script can still be launched, but it won't generate any dataframe.
+
+On the ISIR cluster, numpy and pandas are not installed in the barebone cluster computers,
+ so you need to launch this script in a singularity/apptainer container
+ e.g. with:
+    sbatch test_job_singularity.slurm
 """
 
 import argparse
