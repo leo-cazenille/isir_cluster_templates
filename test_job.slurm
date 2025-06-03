@@ -23,7 +23,6 @@ cp $SLURM_SUBMIT_DIR/test.py $SCRATCH_DIRECTORY
 srun ./test.py "$SLURM_JOB_ID"
 
 # After the job is done we copy our output back to $SLURM_SUBMIT_DIR 
-#cp output_$SLURM_ARRAY_TASK_ID.txt $SLURM_SUBMIT_DIR
 [ -d results ] && cp -R results $SLURM_SUBMIT_DIR
 
 # We step out of the scratch directory and remove it 
